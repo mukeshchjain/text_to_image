@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gemini Image Studio</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080808;
+      --surface:   #111111;
+      --border:    #2a2a2a;
+      --gold:      #c9a84c;
+      --gold-dim:  #7a6230;
+      --text:      #e8e0d0;
+      --muted:     #6b6560;
+      --white:     #ffffff;
+      --error:     #e05a5a;
+      --radius:    14px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise grain overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 1000; opacity: 0.4;
+    }
+
+    /* ── Ambient glow ── */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -30vh; left: 50%;
+      transform: translateX(-50%);
+      width: 80vw; height: 60vh;
+      background: radial-gradient(ellipse, rgba(201,168,76,0.07) 0%, transparent 70%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Layout ── */
+    .page {
+      position: relative; z-index: 1;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 48px 0 40px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 52px;
+      animation: fadeDown 0.7s ease both;
+    }
+
+    .logo-line {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .logo-gem {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--gold), #8a6820);
+      clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+      animation: spin 12s linear infinite;
+    }
+
+    .logo-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2rem;
+      font-weight: 300;
+      letter-spacing: 0.18em;
+      color: var(--white);
+      text-transform: uppercase;
+    }
+
+    .logo-text span { color: var(--gold); }
+
+    .tagline {
+      font-size: 0.7rem;
+      letter-spacing: 0.28em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* ── Main card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px;
+      animation: fadeUp 0.7s 0.15s ease both;
+    }
+
+    /* ── Prompt area ── */
+    .prompt-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.22em;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .prompt-wrap {
+      position: relative;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      padding: 18px 20px;
+      resize: vertical;
+      transition: border-color 0.25s, box-shadow 0.25s;
+      outline: none;
+    }
+
+    textarea::placeholder { color: var(--muted); }
+
+    textarea:focus {
+      border-color: var(--gold-dim);
+      box-shadow: 0 0 0 3px rgba(201,168,76,0.08);
+    }
+
+    /* ── Controls row ── */
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 20px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .model-badge {
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .model-badge::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--gold);
+      animation: pulse 2s ease infinite;
+    }
+
+    /* ── Generate button ── */
+    .btn-generate {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, var(--gold), #8a6820);
+      border: none;
+      border-radius: 8px;
+      color: #0a0a0a;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 400;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-generate::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .btn-generate:hover:not(:disabled)::after { opacity: 1; }
+    .btn-generate:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(201,168,76,0.28);
+    }
+
+    .btn-generate:active:not(:disabled) { transform: translateY(0); }
+    .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-icon { font-size: 1rem; }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 36px 0;
+    }
+
+    /* ── Output zone ── */
+    .output-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.22em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    /* ── Placeholder ── */
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      min-height: 220px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-align: center;
+      padding: 32px;
+      transition: opacity 0.3s;
+    }
+
+    .placeholder-icon {
+      font-size: 2.4rem;
+      opacity: 0.35;
+    }
+
+    /* ── Skeleton / loader ── */
+    .skeleton {
+      display: none;
+      min-height: 380px;
+      border-radius: var(--radius);
+      background: linear-gradient(90deg, var(--surface) 25%, #1a1a1a 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .skeleton-inner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.16em;
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 2px solid var(--border);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: rotate 0.9s linear infinite;
+    }
+
+    /* ── Image result ── */
+    .result-wrap {
+      display: none;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .result-img {
+      width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      display: block;
+      animation: imgReveal 0.6s ease both;
+    }
+
+    .result-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .result-prompt-echo {
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      max-width: 70%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .btn-download {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: transparent;
+      border: 1px solid var(--gold-dim);
+      border-radius: 7px;
+      color: var(--gold);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn-download:hover {
+      background: rgba(201,168,76,0.08);
+      border-color: var(--gold);
+    }
+
+    /* ── Caption text from Gemini ── */
+    .caption-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: 0.78rem;
+      line-height: 1.7;
+      color: var(--muted);
+      display: none;
+    }
+
+    /* ── Error ── */
+    .error-box {
+      display: none;
+      align-items: flex-start;
+      gap: 12px;
+      background: rgba(224,90,90,0.07);
+      border: 1px solid rgba(224,90,90,0.25);
+      border-radius: 10px;
+      padding: 16px 20px;
+      color: var(--error);
+      font-size: 0.78rem;
+      line-height: 1.6;
+    }
+
+    .error-icon { font-size: 1.1rem; flex-shrink: 0; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 28px 0;
+      text-align: center;
+      font-size: 0.62rem;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      text-transform: uppercase;
+      border-top: 1px solid var(--border);
+      margin-top: 52px;
+      animation: fadeUp 0.7s 0.3s ease both;
+    }
+
+    /* ── Keyframes ── */
+    @keyframes fadeDown { from { opacity:0; transform: translateY(-18px); } to { opacity:1; transform: none; } }
+    @keyframes fadeUp   { from { opacity:0; transform: translateY(18px);  } to { opacity:1; transform: none; } }
+    @keyframes shimmer  { to { background-position: -200% 0; } }
+    @keyframes rotate   { to { transform: rotate(360deg); } }
+    @keyframes spin     { to { transform: rotate(360deg); } }
+    @keyframes pulse    { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+    @keyframes imgReveal { from { opacity:0; transform: scale(0.97); } to { opacity:1; transform: none; } }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .card { padding: 24px 18px; }
+      .controls { flex-direction: column; align-items: stretch; }
+      .btn-generate { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <div class="logo-line">
+      <div class="logo-gem"></div>
+      <div class="logo-text">Gemini <span>Image</span> Studio</div>
+    </div>
+    <p class="tagline">Powered by Gemini 2.5 Flash &nbsp;·&nbsp; Text to Image</p>
+  </header>
+
+  <!-- Main card -->
+  <main>
+    <div class="card">
+
+      <!-- Prompt input -->
+      <p class="prompt-label">Describe your image</p>
+      <div class="prompt-wrap">
+        <textarea
+          id="promptInput"
+          placeholder="e.g. A misty Japanese mountain village at dawn, golden light filtering through bamboo, ultra-realistic, cinematic..."
+          rows="5"
+        ></textarea>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls">
+        <div class="model-badge">gemini-2.5-flash-preview-image-generation</div>
+        <button class="btn-generate" id="generateBtn" onclick="generateImage()">
+          <span class="btn-icon">✦</span> Generate Image
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Output area -->
+      <p class="output-label" id="outputLabel">Output</p>
+
+      <!-- Placeholder -->
+      <div class="placeholder" id="placeholder">
+        <div class="placeholder-icon">◈</div>
+        <div>Your generated image will appear here</div>
+      </div>
+
+      <!-- Skeleton loader -->
+      <div class="skeleton" id="skeleton">
+        <div class="skeleton-inner">
+          <div class="spinner"></div>
+          <div>Generating your image…</div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div class="result-wrap" id="resultWrap">
+        <img class="result-img" id="resultImg" src="" alt="Generated image" />
+        <div class="result-meta">
+          <div class="result-prompt-echo" id="promptEcho"></div>
+          <button class="btn-download" id="downloadBtn">⬇ Download</button>
+        </div>
+        <div class="caption-box" id="captionBox"></div>
+      </div>
+
+      <!-- Error -->
+      <div class="error-box" id="errorBox">
+        <span class="error-icon">⚠</span>
+        <span id="errorMsg"></span>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>Gemini Image Studio &nbsp;·&nbsp; Google Generative AI &nbsp;·&nbsp; Free Tier</footer>
+</div>
+
+<script>
+  const API_KEY   = "AIzaSyBHffMrcQjVt38sIPMCFJ6btl6XDOlHz4g";
+  const MODEL     = "gemini-2.5-flash-preview-image-generation";
+  const ENDPOINT  = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+
+  // UI elements
+  const promptInput  = document.getElementById("promptInput");
+  const generateBtn  = document.getElementById("generateBtn");
+  const placeholder  = document.getElementById("placeholder");
+  const skeleton     = document.getElementById("skeleton");
+  const resultWrap   = document.getElementById("resultWrap");
+  const resultImg    = document.getElementById("resultImg");
+  const promptEcho   = document.getElementById("promptEcho");
+  const downloadBtn  = document.getElementById("downloadBtn");
+  const captionBox   = document.getElementById("captionBox");
+  const errorBox     = document.getElementById("errorBox");
+  const errorMsg     = document.getElementById("errorMsg");
+
+  // Allow Enter+Ctrl/Cmd to generate
+  promptInput.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") generateImage();
+  });
+
+  function setState(state) {
+    placeholder.style.display  = "none";
+    skeleton.style.display      = "none";
+    resultWrap.style.display    = "none";
+    errorBox.style.display      = "none";
+    captionBox.style.display    = "none";
+
+    if (state === "idle")      placeholder.style.display = "flex";
+    if (state === "loading")   skeleton.style.display    = "block";
+    if (state === "result")    resultWrap.style.display  = "flex";
+    if (state === "error")     errorBox.style.display    = "flex";
+  }
+
+  async function generateImage() {
+    const prompt = promptInput.value.trim();
+    if (!prompt) {
+      promptInput.focus();
+      promptInput.style.borderColor = "var(--error)";
+      setTimeout(() => promptInput.style.borderColor = "", 1200);
+      return;
+    }
+
+    generateBtn.disabled = true;
+    setState("loading");
+
+    try {
+      const response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": API_KEY
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [{ text: prompt }]
+            }
+          ],
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"]
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData?.error?.message || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(msg);
+      }
+
+      const data = await response.json();
+      const parts = data?.candidates?.[0]?.content?.parts;
+
+      if (!parts || parts.length === 0) {
+        throw new Error("No content returned from the API. Please try again.");
+      }
+
+      let imageData   = null;
+      let mimeType    = "image/png";
+      let captionText = "";
+
+      for (const part of parts) {
+        if (part.inlineData && part.inlineData.data) {
+          imageData = part.inlineData.data;
+          mimeType  = part.inlineData.mimeType || "image/png";
+        }
+        if (part.text) {
+          captionText = part.text;
+        }
+      }
+
+      if (!imageData) {
+        throw new Error("The API responded but did not return an image. " + (captionText || "Try a different prompt."));
+      }
+
+      // Display image
+      const dataUrl = `data:${mimeType};base64,${imageData}`;
+      resultImg.src = dataUrl;
+      promptEcho.textContent = `"${prompt}"`;
+
+      // Download button
+      downloadBtn.onclick = () => {
+        const ext  = mimeType.split("/")[1] || "png";
+        const a    = document.createElement("a");
+        a.href     = dataUrl;
+        a.download = `gemini-${Date.now()}.${ext}`;
+        a.click();
+      };
+
+      // Caption (optional)
+      if (captionText) {
+        captionBox.textContent = captionText;
+        captionBox.style.display = "block";
+      }
+
+      setState("result");
+
+    } catch (err) {
+      errorMsg.textContent = err.message || "An unexpected error occurred.";
+      setState("error");
+    } finally {
+      generateBtn.disabled = false;
+    }
+  }
+
+  // Init
+  setState("idle");
+</script>
+</body>
+</html>
